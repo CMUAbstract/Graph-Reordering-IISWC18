@@ -1,0 +1,4 @@
+Source code for implementing Selective Hubsorting. 
+
+The implementation first computes packing factor and only conditionally
+hubsorts the graph (if the packing factor is high)
