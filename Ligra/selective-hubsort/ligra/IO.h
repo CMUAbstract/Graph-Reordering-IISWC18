@@ -49,6 +49,8 @@ using namespace std;
 typedef pair<uintE,uintE> intPair;
 typedef pair<uintE, pair<uintE,intE> > intTriple;
 
+const double THRESHOLD {4.0f};
+
 template <class E>
 struct pairFirstCmp {
   bool operator() (pair<uintE,E> a, pair<uintE,E> b) {
@@ -624,13 +626,10 @@ static pvector<uintT> ParallelPrefixSum (const pvector<uintT> &degrees) {
   PageRank Optimizations for directed graphs - 
   1) We do not create a new outNeighbors list (because it pull-only)
   2) We only create new out-degrees because PR uses it during computation
-
-  NOTE: This implements frequency based clustering
 */
 template <class vertex>
 graph<vertex> preprocessGraph(graph<vertex> GA, bool isSym, bool useOutdeg, 
-                              pvector<uintE>& new_ids, bool isPageRank = false, 
-                              bool isDenseWrite = false)
+                              pvector<uintE>& new_ids, bool isPageRank = false)
 {
     Timer t; 
     t.Start();
@@ -639,25 +638,17 @@ graph<vertex> preprocessGraph(graph<vertex> GA, bool isSym, bool useOutdeg,
     vertex *origG    = GA.V;
     typedef std::pair<uintT, uintE> degree_nodeid_t; 
     pvector<degree_nodeid_t> degree_id_pairs(numVertices);
-    uintT avgDegree  = numEdges / numVertices;
-    uintT hubCount {0};
     if (!isSym) {
         /* directed graph */
         /* STEP I - collect degrees of all vertices */
-        #pragma omp parallel for reduction(+ : hubCount)
+        #pragma omp parallel for
         for (uintE v = 0; v < numVertices; ++v) {
             vertex vtx = origG[v];
             if (useOutdeg) {
                 degree_id_pairs[v] = std::make_pair(vtx.getOutDegree(), v);
-                if (vtx.getOutDegree() > avgDegree) {
-                    ++hubCount;
-                }
             }
             else {
                 degree_id_pairs[v] = std::make_pair(vtx.getInDegree(), v);
-                if (vtx.getInDegree() > avgDegree) {
-                    ++hubCount;
-                }
             }
         }
 
@@ -665,73 +656,26 @@ graph<vertex> preprocessGraph(graph<vertex> GA, bool isSym, bool useOutdeg,
         __gnu_parallel::sort(degree_id_pairs.begin(), degree_id_pairs.end(), 
                              std::greater<degree_nodeid_t>());
 
-        /* Step III - make a remap based on the sorted degree list [Only for hubs] */
-        #pragma omp parallel for
-        for (uintE n = 0; n < hubCount; ++n) {
-            new_ids[degree_id_pairs[n].second] = n;
-        }
-        //clearing space from degree pairs
-        pvector<degree_nodeid_t>().swap(degree_id_pairs);
-
-        /* Step IV - assigning a remap for (easy) non hub vertices */
-        auto numHubs = hubCount;
-        SlidingQueue<uintE> queue(numHubs);
-        #pragma omp parallel
-        {
-            QueueBuffer<uintE> lqueue(queue, numHubs / omp_get_max_threads());
-            #pragma omp for
-            for (uintE n = numHubs; n < numVertices; ++n) {
-                if (new_ids[n] == UINT_E_MAX) {
-                    // This steps preserves the ordering of the original graph (as much as possible)
-                    new_ids[n] = n;
-                }
-                else {
-                    uintE remappedTo = new_ids[n];
-                    if (new_ids[remappedTo] == UINT_E_MAX) {
-                        // safe to swap Ids because the original vertex is a non-hub 
-                        new_ids[remappedTo] = n;
-                    }
-                    else {
-                        // Cannot swap ids because original vertex was a hub (swapping 
-                        // would disturb sorted ordering of hubs - not allowed)
-                        lqueue.push_back(n);
-                    }
-                }
-            }
-            lqueue.flush(); 
-        }
-        queue.slide_window(); //the queue keeps a list of vertices where a simple swap of locations is not possible
-
-        /* Step V - assigning remaps for remaining non hubs */
-        uintE unassignedCtr {0};
-        auto q_iter = queue.begin();
-        #pragma omp parallel for
-        for (uintE n = 0; n < numHubs; ++n) {
-            if (new_ids[n] == UINT_E_MAX) {
-                uintE u = *(q_iter + __sync_fetch_and_add(&unassignedCtr, 1));
-                new_ids[n] = u;
-            }
-        }
-        
-        /* Step VI - generate degree list for new graph */
+        /* Step III - make a remap based on the sorted degree list */
         pvector<uintT> degrees(numVertices);
         pvector<uintT> inv_degrees(numVertices);
         #pragma omp parallel for
         for (uintE v = 0; v < numVertices; ++v) {
-            auto newID = new_ids[v]; 
+            degrees[v] = degree_id_pairs[v].first;
+            auto origID = degree_id_pairs[v].second;
+            new_ids[origID] = v;
+            vertex vtx = origG[origID];
             if (useOutdeg) {
-                vertex vtx         = origG[v];
-                degrees[newID]     = vtx.getOutDegree(); 
-                inv_degrees[newID] = vtx.getInDegree();
+                inv_degrees[v] = vtx.getInDegree();
             }
             else {
-                vertex vtx         = origG[v];
-                degrees[newID]     = vtx.getInDegree(); 
-                inv_degrees[newID] = vtx.getOutDegree();
+                inv_degrees[v] = vtx.getOutDegree();
             }
         }
+        //clearing space from degree pairs
+        pvector<degree_nodeid_t>().swap(degree_id_pairs);
 
-        /* Step VII - make a new vertex list for the new graph */
+        /* Step IV - make a new vertex list for the new graph */
 		pvector<uintT> offsets     = ParallelPrefixSum(degrees);
 		pvector<uintT> inv_offsets = ParallelPrefixSum(inv_degrees);
         //clearing space from degree lists
@@ -770,28 +714,25 @@ graph<vertex> preprocessGraph(graph<vertex> GA, bool isSym, bool useOutdeg,
                         newV[newID].setOutWeight(u, origG[v].getOutWeight(u));
                     #endif
                 }
-                if (!isDenseWrite) {
-                    /* for dense-write pushonly apps we dont need in-neighbors */
-                    //copy in-neighbors
-                    newV[newID].setInDegree(origG[v].getInDegree());
-                    #ifndef WEIGHTED
-                        if (useOutdeg) 
-                            newV[newID].setInNeighbors(inEdges + inv_offsets[newID]); 
-                        else
-                            newV[newID].setInNeighbors(inEdges + offsets[newID]); 
-                    #else
-                        if (useOutdeg) 
-                            newV[newID].setInNeighbors(inEdges + 2 * inv_offsets[newID]); 
-                        else
-                            newV[newID].setInNeighbors(inEdges + 2 * offsets[newID]); 
+                //copy in-neighbors
+                newV[newID].setInDegree(origG[v].getInDegree());
+                #ifndef WEIGHTED
+                    if (useOutdeg) 
+                        newV[newID].setInNeighbors(inEdges + inv_offsets[newID]); 
+                    else
+                        newV[newID].setInNeighbors(inEdges + offsets[newID]); 
+                #else
+                    if (useOutdeg) 
+                        newV[newID].setInNeighbors(inEdges + 2 * inv_offsets[newID]); 
+                    else
+                        newV[newID].setInNeighbors(inEdges + 2 * offsets[newID]); 
+                #endif
+                for (uintE u = 0; u < origG[v].getInDegree(); ++u) {
+                    auto origNgh = origG[v].getInNeighbor(u);
+                    newV[newID].setInNeighbor(u, new_ids[origNgh]);
+                    #ifdef WEIGHTED
+                        newV[newID].setInWeight(u, origG[v].getInWeight(u));
                     #endif
-                    for (uintE u = 0; u < origG[v].getInDegree(); ++u) {
-                        auto origNgh = origG[v].getInNeighbor(u);
-                        newV[newID].setInNeighbor(u, new_ids[origNgh]);
-                        #ifdef WEIGHTED
-                            newV[newID].setInWeight(u, origG[v].getInWeight(u));
-                        #endif
-                    }
                 }
             }
             else {
@@ -815,79 +756,34 @@ graph<vertex> preprocessGraph(graph<vertex> GA, bool isSym, bool useOutdeg,
         /* Step V - make the new graph */ 
         Uncompressed_Mem<vertex>* mem = new Uncompressed_Mem<vertex>(newV,numVertices,numEdges,outEdges,inEdges);
         t.Stop();
-        t.PrintTime("HubSort Time", t.Seconds());
+        t.PrintTime("DegSort Time", t.Seconds());
         return graph<vertex>(newV,numVertices,numEdges,mem);
     }
     else {
         /* undirected graph */
         /* STEP I - collect degrees of all vertices */
-        #pragma omp parallel for reduction(+ : hubCount)
+        #pragma omp parallel for
         for (uintE v = 0; v < numVertices; ++v) {
             vertex vtx = origG[v];
             degree_id_pairs[v] = std::make_pair(vtx.getOutDegree(), v);
-            if (vtx.getOutDegree() > avgDegree) {
-                ++hubCount;
-            }
         }
 
         /* Step II - sort the degrees in parallel */
         __gnu_parallel::sort(degree_id_pairs.begin(), degree_id_pairs.end(), 
                              std::greater<degree_nodeid_t>());
 
-        /* Step III - assign a remap for the hub vertices*/
+        /* Step III - make a remap based on the sorted degree list */
+        pvector<uintT> degrees(numVertices);
         #pragma omp parallel for
-        for (uintE v = 0; v < hubCount; ++v) {
-            new_ids[degree_id_pairs[v].second] = v;
+        for (uintE v = 0; v < numVertices; ++v) {
+            degrees[v] = degree_id_pairs[v].first;
+            auto origID = degree_id_pairs[v].second;
+            new_ids[origID] = v;
         }
         //clearing space from degree pairs
         pvector<degree_nodeid_t>().swap(degree_id_pairs);
 
-        /* Step IV - assigning remap for (easy) non hub vertices */
-        auto numHubs = hubCount;
-        SlidingQueue<uintE> queue(numHubs);
-        #pragma omp parallel 
-        {
-            QueueBuffer<uintE> lqueue(queue, numHubs / omp_get_max_threads());
-            #pragma omp for 
-            for (uintE n = numHubs; n < numVertices; ++n) {
-                if (new_ids[n] == UINT_E_MAX) {
-                    new_ids[n] = n;
-                }
-                else {
-                    uintE remappedTo = new_ids[n];
-                    if (new_ids[remappedTo] == UINT_E_MAX) {
-                        new_ids[remappedTo] = n;
-                    }
-                    else {
-                        lqueue.push_back(n);
-                    }
-                }
-            }
-            lqueue.flush();
-        }
-        queue.slide_window();
-
-        /* Step V - assigning remaps for remaining non hubs */
-        uintE unassignedCtr {0};
-        auto q_iter = queue.begin();
-        #pragma omp parallel for
-        for (uintE n = 0; n < numHubs; ++n) {
-            if (new_ids[n] == UINT_E_MAX) {
-                uintE u = *(q_iter + __sync_fetch_and_add(&unassignedCtr, 1));
-                new_ids[n] = u;
-            }
-        }
-        
-        /* Step VI - generate degree list for new graph */
-        pvector<uintT> degrees(numVertices);
-        #pragma omp parallel for
-        for (uintE v = 0; v < numVertices; ++v) {
-            auto newID = new_ids[v]; 
-            vertex vtx         = origG[v];
-            degrees[newID]     = vtx.getOutDegree(); 
-        }
-
-        /* Step VII - make a new vertex list for the new graph */
+        /* Step IV - make a new vertex list for the new graph */
 		pvector<uintT> offsets     = ParallelPrefixSum(degrees);
         //clearing space from degrees
         pvector<uintT>().swap(degrees);
@@ -920,8 +816,67 @@ graph<vertex> preprocessGraph(graph<vertex> GA, bool isSym, bool useOutdeg,
         /* Step V - make the new graph */ 
         Uncompressed_Mem<vertex>* mem = new Uncompressed_Mem<vertex>(newV,numVertices,numEdges,outEdges);
         t.Stop();
-        t.PrintTime("HubSort Time", t.Seconds());
+        t.PrintTime("DegSort Time", t.Seconds());
         return graph<vertex>(newV,numVertices,numEdges,mem);
     }
+}
+
+/* 
+  Determine if the structure of the graph is amenable to benefit from 
+  lightweight reordering techniques. 
+
+  The implementation is a simple scan of the entire vertex space
+  to find the cache lines that contain atleast one hub
+
+  NOTE: we found that reordering is most effective for pull-based apps. 
+  Hence, the following function assumes out-degree sorting by default
+*/
+template <class vertex>
+bool computePackingFactor(graph<vertex> GA, bool isSym, bool useOutdeg, size_t elemSz) {
+    Timer t; 
+    t.Start();
+    auto numVertices = GA.n;
+    auto numEdges    = GA.m;
+    vertex *origG    = GA.V;
+    uintT avgDegree  = numEdges / numVertices;
+    
+    size_t cacheBlkSz {64};
+    size_t vDataSz        = numVertices * elemSz; //Total size of vData array in Bytes
+    size_t numCacheBlocks = (vDataSz + (cacheBlkSz-1)) / cacheBlkSz; //number of cache blocks to completely store entire vData
+    size_t vtxPerBlk {0}; 
+    size_t hubCacheBlocks {0};
+    size_t numHubs {0};
+    double hotSetSize_before {0};
+    double hotSetSize_after  {0}; 
+    double packingFactor     {0}; 
+    
+    if (elemSz < cacheBlkSz) {
+        vtxPerBlk = cacheBlkSz / elemSz;
+        #pragma omp parallel for reduction (+ : hubCacheBlocks, numHubs)
+        for (uintE b = 0; b < numCacheBlocks; ++b) {
+            bool hasHubs {false};
+            for (uintE v = b * vtxPerBlk; v < (b+1) * vtxPerBlk; ++v) {
+                if (origG[v].getOutDegree() > avgDegree) {
+                    hasHubs = true;
+                    ++numHubs;
+                }
+            }
+            if (hasHubs) {
+                ++hubCacheBlocks;
+            }
+        }
+        hotSetSize_before = hubCacheBlocks * 64;
+        hotSetSize_after  = ((numHubs + (vtxPerBlk-1)) / (vtxPerBlk)) * 64; 
+        hotSetSize_after  = (((numHubs*elemSz) + (cacheBlkSz-1)) / (cacheBlkSz)) * 64; 
+        packingFactor     = static_cast<double>(hotSetSize_before) / static_cast<double>(hotSetSize_after);
+    }
+    t.Stop();
+    t.PrintTime("Packing Factor Time(in s)", t.Seconds());
+    std::cout << "Number of hubs = " << numHubs << std::endl;
+    std::cout << "HotSet size in MB (before reordering) = " << static_cast<double>(hotSetSize_before) / (1024 * 1024) << std::endl;
+    std::cout << "HotSet size in MB (after  reordering) = " << static_cast<double>(hotSetSize_after) / (1024 * 1024) << std::endl;
+    std::cout << "Packing Factor = " << packingFactor << std::endl;
+    bool result = packingFactor > THRESHOLD;
+    return result;
 }
 

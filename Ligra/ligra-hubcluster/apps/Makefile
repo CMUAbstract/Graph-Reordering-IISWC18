@@ -26,6 +26,8 @@ ifdef ALIGNED
 ALIGN = -DALIGNED
 endif
 
+OPENMP=1
+
 #compilers
 ifdef CILK
 PCC = g++

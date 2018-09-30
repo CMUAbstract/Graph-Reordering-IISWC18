@@ -288,15 +288,13 @@ vertexSubset edgeMap(graph<vertex> GA, VS& vs, F f,
 
 /* General function to print stats about frontier size */
 template <class VS>
-void frontierStats(VS& vs, long numVertices, bool KCore = false) {
-    if (KCore) {
-        double percent = (static_cast<double>(vs.size()) / static_cast<double>(numVertices)) * 100;
-        if (vs.dense()) {
-            std::cout << "PULL iteration. Frontier size = " << percent << std::endl;
-        }
-        else { 
-            std::cout << "PUSH iteration. Frontier size = " << percent << std::endl;
-        }
+void frontierStats(VS& vs, long numVertices) {
+    double percent = (static_cast<double>(vs.size()) / static_cast<double>(numVertices)) * 100;
+    if (vs.dense()) {
+        std::cout << "PULL iteration. Frontier size = " << percent << std::endl;
+    }
+    else { 
+        std::cout << "PUSH iteration. Frontier size = " << percent << std::endl;
     }
     return;
 }
@@ -493,7 +491,6 @@ int parallel_main(int argc, char* argv[]) {
   bool binary = P.getOptionValue("-b");
   bool mmap = P.getOptionValue("-m");
   bool isPageRank = (P.getOptionIntValue("-pagerank", -1) == 1);
-  bool isDenseWrite = (P.getOptionIntValue("-densewrite", -1) == 1);
   /* preprocessing options : 0 - outdegsort, 1 - indegsort, else - no-preprocessing */
   int preprocess = P.getOptionIntValue("-preprocess", -1);
   //cout << "mmap = " << mmap << endl;
@@ -529,17 +526,30 @@ int parallel_main(int argc, char* argv[]) {
     if (symmetric) {
       graph<symmetricVertex> G =
         readGraph<symmetricVertex>(iFile,compressed,symmetric,binary,mmap); //symmetric graph
-      pvector<uintE> new_ids(G.n, UINT_E_MAX);
+      pvector<uintE> new_ids(G.n, 0);
       if (preprocess == 0 || preprocess == 1) {
-        graph<symmetricVertex> newG = preprocessGraph<symmetricVertex>(G, symmetric, (preprocess == 0), new_ids);
-        G.del();
-        Compute(newG,P,new_ids);
-        for(int r=0;r<rounds;r++) {
-          //startTime();
+        if (computePackingFactor<symmetricVertex>(G, symmetric, (preprocess == 0), sizeof(double)) == true) {
+          /* This is a high packing factor graph */
+          graph<symmetricVertex> newG = preprocessGraph<symmetricVertex>(G, symmetric, (preprocess == 0), new_ids);
+          G.del();
           Compute(newG,P,new_ids);
-          //nextTime("Running time");
+          for(int r=0;r<rounds;r++) {
+            //startTime();
+            Compute(newG,P,new_ids);
+            //nextTime("Running time");
+          }
+          newG.del();
         }
-        newG.del();
+        else {
+          /* This is a low packing factor graph */
+          Compute(G,P,new_ids);
+          for(int r=0;r<rounds;r++) {
+            //startTime();
+            Compute(G,P,new_ids);
+            //nextTime("Running time");
+          }
+          G.del();
+        }
       }
       else {
         Compute(G,P,new_ids);
@@ -553,19 +563,34 @@ int parallel_main(int argc, char* argv[]) {
     } else {
       graph<asymmetricVertex> G =
         readGraph<asymmetricVertex>(iFile,compressed,symmetric,binary,mmap); //asymmetric graph
-      pvector<uintE> new_ids(G.n, UINT_E_MAX);
+      pvector<uintE> new_ids(G.n, 0);
       if (preprocess == 0 || preprocess == 1) {
-        graph<asymmetricVertex> newG = preprocessGraph<asymmetricVertex>(G, symmetric, (preprocess == 0), new_ids, isPageRank, isDenseWrite);
-        G.del();
-        Compute(newG,P,new_ids);
-        if(newG.transposed) newG.transpose();
-        for(int r=0;r<rounds;r++) {
-          //startTime();
+        if (computePackingFactor<asymmetricVertex>(G, symmetric, (preprocess == 0), sizeof(double)) == true) {
+          /* This is a high packing factor graph */
+          graph<asymmetricVertex> newG = preprocessGraph<asymmetricVertex>(G, symmetric, (preprocess == 0), new_ids, isPageRank);
+          G.del();
           Compute(newG,P,new_ids);
           if(newG.transposed) newG.transpose();
-          //nextTime("Running time");
+          for(int r=0;r<rounds;r++) {
+            //startTime();
+            Compute(newG,P,new_ids);
+            if(newG.transposed) newG.transpose();
+            //nextTime("Running time");
+          }
+          newG.del();
         }
-        newG.del();
+        else {
+          /* This is a low packing factor graph */
+          Compute(G,P,new_ids);
+          if(G.transposed) G.transpose();
+          for(int r=0;r<rounds;r++) {
+            //startTime();
+            Compute(G,P,new_ids);
+            if(G.transposed) G.transpose();
+            //nextTime("Running time");
+          }
+          G.del();
+        }
       }
       else {
         Compute(G,P,new_ids);
