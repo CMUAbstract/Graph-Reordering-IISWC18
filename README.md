@@ -9,10 +9,10 @@ The repo contains source code:
 
 * Packing Factor computation
 * Lightweight Reordering techniques (incorporated in the Ligra applications):
-    * Hub Sorting (based on [^fn1])
+    * Hub Sorting (based on [1])
     * Hub Clustering
 
-Details about finding the packing factor of graphs (must be in ligra-format [^fn2]) 
+Details about finding the packing factor of graphs (must be in ligra-format [2]) 
 and applying lightweight reordering can be found in the `Ligra` directory (**NOTE:**
 _Extensions to the GAP benchmarks coming soon_)
 
@@ -31,7 +31,7 @@ For issues/information, please feel free to send an email at `vigneshb@andrew.cm
 
 ## References
 
-[^fn1]: Zhang, Yunming, et al. "Making caches work for graph analytics." Big Data (Big Data), 
+[1]: Zhang, Yunming, et al. "Making caches work for graph analytics." Big Data (Big Data), 
 2017 IEEE International Conference on. IEEE, 2017
 
-[^fn2]: [format](https://github.com/jshun/ligra#input-format-for-ligra-applications-and-the-ligra-encoder)
+[2]: [format](https://github.com/jshun/ligra#input-format-for-ligra-applications-and-the-ligra-encoder)
