@@ -6,12 +6,12 @@
 * `ligra-hubcluster`  - Unconditional HubClustering applied to ligra applications
 * `selective-hubsort` - Selective HubSorting based on Packing Factor of the input graph
 
-## Navigation 
+## Source Navigation 
 
 Code for reordering and packing factor computation is in `ligra/IO.h` in each directory. 
 
-Reordering is implemented in a function called `preprocessGraph`
+Lightweight Reordering techniques are implemented in the `preprocessGraph(...)` function
 
-Packing Factor computation is implemented in a function called `computePackingFactor`
+Packing Factor computation is implemented in the `computePackingFactor(...)` function
 
 
