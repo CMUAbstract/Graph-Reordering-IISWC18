@@ -1,3 +1,0 @@
-Source code for implementing Hub Clustering; a variant of 
-frequency based clustering that does not require sorting 
-(only keeps the hubs together)
