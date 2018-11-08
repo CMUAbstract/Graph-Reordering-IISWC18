@@ -95,7 +95,6 @@ void Compute(graph<vertex>& GA, commandLine P, pvector<uintE> &new_ids) {
   long maxIters = P.getOptionLongValue("-maxiters",100);
   const intE n = GA.n;
   const double damping = 0.85, epsilon = 0.0000001;
-  //const double damping = 0.85, epsilon = 0.0001;
 
   
   double one_over_n = 1/(double)n;

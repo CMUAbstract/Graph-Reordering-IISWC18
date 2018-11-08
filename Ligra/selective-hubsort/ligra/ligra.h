@@ -490,14 +490,14 @@ int parallel_main(int argc, char* argv[]) {
   bool compressed = P.getOptionValue("-c");
   bool binary = P.getOptionValue("-b");
   bool mmap = P.getOptionValue("-m");
-  bool isPageRank = (P.getOptionIntValue("-pagerank", -1) == 1);
-  /* preprocessing options : 0 - outdegsort, 1 - indegsort, else - no-preprocessing */
-  int preprocess = P.getOptionIntValue("-preprocess", -1);
   //cout << "mmap = " << mmap << endl;
+  bool isPageRank = (P.getOptionIntValue("-pagerank", -1) == 1);
+  /* preprocessing options : 0 - outdegsort, 1 - indegsort, anything else - no-preprocessing */
+  int preprocess = P.getOptionIntValue("-preprocess", -1);
   long rounds = P.getOptionLongValue("-rounds",3);
   if (compressed) {
-    assert(false);
-    #if 0
+    assert(false);  //preprocessing currently only supported for uncompressed graphs
+    #if 0 
     if (symmetric) {
       graph<compressedSymmetricVertex> G =
         readCompressedGraph<compressedSymmetricVertex>(iFile,symmetric,mmap); //symmetric graph
@@ -529,7 +529,7 @@ int parallel_main(int argc, char* argv[]) {
       pvector<uintE> new_ids(G.n, 0);
       if (preprocess == 0 || preprocess == 1) {
         if (computePackingFactor<symmetricVertex>(G, symmetric, (preprocess == 0), sizeof(double)) == true) {
-          /* This is a high packing factor graph */
+          /* This is a high packing factor graph - worth reordering the graph*/
           graph<symmetricVertex> newG = preprocessGraph<symmetricVertex>(G, symmetric, (preprocess == 0), new_ids);
           G.del();
           Compute(newG,P,new_ids);
@@ -541,7 +541,7 @@ int parallel_main(int argc, char* argv[]) {
           newG.del();
         }
         else {
-          /* This is a low packing factor graph */
+          /* This is a low packing factor graph - the limited benefits are unlikely to justify reordering costs*/
           Compute(G,P,new_ids);
           for(int r=0;r<rounds;r++) {
             //startTime();
@@ -566,7 +566,7 @@ int parallel_main(int argc, char* argv[]) {
       pvector<uintE> new_ids(G.n, 0);
       if (preprocess == 0 || preprocess == 1) {
         if (computePackingFactor<asymmetricVertex>(G, symmetric, (preprocess == 0), sizeof(double)) == true) {
-          /* This is a high packing factor graph */
+          /* This is a high packing factor graph - worth reordering the graph*/
           graph<asymmetricVertex> newG = preprocessGraph<asymmetricVertex>(G, symmetric, (preprocess == 0), new_ids, isPageRank);
           G.del();
           Compute(newG,P,new_ids);
@@ -580,7 +580,7 @@ int parallel_main(int argc, char* argv[]) {
           newG.del();
         }
         else {
-          /* This is a low packing factor graph */
+          /* This is a low packing factor graph - the limited benefits are unlikely to justify reordering costs*/
           Compute(G,P,new_ids);
           if(G.transposed) G.transpose();
           for(int r=0;r<rounds;r++) {
