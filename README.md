@@ -13,8 +13,9 @@ The repo contains source code:
     * Hub Clustering
 
 Details about finding the packing factor of graphs (must be in [ligra-format](https://github.com/jshun/ligra#input-format-for-ligra-applications-and-the-ligra-encoder)) 
-and applying lightweight reordering can be found in the `Ligra` directory (**NOTE:**
-_Extensions to the GAP benchmarks coming soon_)
+and applying lightweight reordering can be found in the `Ligra` and `GAP` directories
+
+
 
 ## Requirements
 
