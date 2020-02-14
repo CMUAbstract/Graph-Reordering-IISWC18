@@ -31,7 +31,7 @@ endif
 
 #KERNELS = bc bfs-push pr sssp sssp-bf bfs preprocessor preprocessor-weighted cc
 KERNELS = bc pr sssp bfs cc preprocessor-pr preprocessor-sssp preprocessor-bfs preprocessor-sssp 
-SUITE = $(KERNELS) #converter
+SUITE = $(KERNELS) graph-reorderer #converter
 
 .PHONY: all
 all: $(SUITE)
