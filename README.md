@@ -37,7 +37,7 @@ Tested on Debian Stretch with g++ version 6.3.0
 
 ## Issues
 
-For issues/information, please feel free to send an email at `vigneshb@andrew.cmu.edu` 
+For issues/information, please feel free to send an email at `vigneshb@alumni.cmu.edu` 
 
 
 ## References
